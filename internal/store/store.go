@@ -12,12 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package store implements the etcd v3 data model over a backend.
+// Package store implements the etcd v3 data model over a destination.
 //
-// The gateway is the only writer of its backend records: an ephemeral owner
+// The gateway is the only writer of its destination records: an ephemeral owner
 // record keeps other gateways on standby. Every write takes the store lock, so
 // the writes, their revisions and their events follow one order. The revision
-// of a write is the version id the backend gives its record, which grows with
+// of a write is the version id the destination gives its record, which grows with
 // every write. A deleted key keeps a tombstone record, so the deletion gets a
 // revision too.
 package store
@@ -43,7 +43,7 @@ import (
 	"go.etcd.io/etcd/api/v3/mvccpb"
 	"go.etcd.io/etcd/api/v3/v3rpc/rpctypes"
 
-	"github.com/oxia-db/oxia-etcd/internal/backend"
+	"github.com/oxia-db/oxia-etcd/internal/destination"
 )
 
 const (
@@ -55,7 +55,7 @@ const (
 	MaxTxnOps = 128
 )
 
-// ErrLostOwnership is returned by Run when another gateway took over the backend records.
+// ErrLostOwnership is returned by Run when another gateway took over the destination records.
 var ErrLostOwnership = errors.New("store: another gateway owns the records")
 
 type Options struct {
@@ -64,7 +64,7 @@ type Options struct {
 	HistorySize int
 	// MaxValueSize is the largest value a key can have.
 	MaxValueSize int
-	// OpTimeout bounds each backend operation.
+	// OpTimeout bounds each destination operation.
 	OpTimeout time.Duration
 	// OwnerCheckInterval is how often the gateway checks it still owns the records.
 	OwnerCheckInterval time.Duration
@@ -93,7 +93,7 @@ func (o *Options) withDefaults() Options {
 }
 
 type Store struct {
-	be   backend.Backend
+	dst  destination.Destination
 	opts Options
 	log  *slog.Logger
 
@@ -111,10 +111,10 @@ type Store struct {
 	size   atomic.Int64
 }
 
-func New(be backend.Backend, opts Options, log *slog.Logger) *Store {
+func New(dst destination.Destination, opts Options, log *slog.Logger) *Store {
 	opts = opts.withDefaults()
 	return &Store{
-		be:     be,
+		dst:    dst,
 		opts:   opts,
 		log:    log,
 		hist:   newHistory(opts.HistorySize),
@@ -180,12 +180,12 @@ func (s *Store) Run(ctx context.Context) error {
 func (s *Store) acquire(ctx context.Context, token string) (int64, error) {
 	for {
 		opCtx, cancel := s.opCtx()
-		rev, err := s.be.PutEphemeral(opCtx, ownerKey, []byte(token), backend.VersionNotExists)
+		rev, err := s.dst.PutEphemeral(opCtx, ownerKey, []byte(token), destination.VersionNotExists)
 		cancel()
 		if err == nil {
 			return rev, nil
 		}
-		if errors.Is(err, backend.ErrConflict) {
+		if errors.Is(err, destination.ErrConflict) {
 			s.log.Info("Another gateway owns the records, standing by")
 		} else {
 			s.log.Warn("Failed to take the ownership of the records", slog.Any("error", err))
@@ -201,9 +201,9 @@ func (s *Store) acquire(ctx context.Context, token string) (int64, error) {
 func (s *Store) checkOwner(token string) error {
 	ctx, cancel := s.opCtx()
 	defer cancel()
-	rec, err := s.be.Get(ctx, ownerKey)
+	rec, err := s.dst.Get(ctx, ownerKey)
 	switch {
-	case errors.Is(err, backend.ErrNotFound):
+	case errors.Is(err, destination.ErrNotFound):
 		return ErrLostOwnership
 	case err != nil:
 		s.log.Warn("Failed to check the ownership of the records", slog.Any("error", err))
@@ -223,7 +223,7 @@ func (s *Store) recover(ctx context.Context, rev int64) error {
 	defer cancel()
 
 	var scanErr error
-	err := s.be.Scan(opCtx, leasePrefix, leaseEnd, func(r backend.Record) bool {
+	err := s.dst.Scan(opCtx, leasePrefix, leaseEnd, func(r destination.Record) bool {
 		id, err := strconv.ParseInt(r.Key[len(leasePrefix):], 16, 64)
 		if err != nil {
 			scanErr = err
@@ -239,7 +239,7 @@ func (s *Store) recover(ctx context.Context, rev int64) error {
 
 	var orphans []*entry
 	var size int64
-	err = s.be.Scan(opCtx, kvPrefix, kvEnd, func(r backend.Record) bool {
+	err = s.dst.Scan(opCtx, kvPrefix, kvEnd, func(r destination.Record) bool {
 		e, err := recordEntry(r)
 		if err != nil {
 			scanErr = err
@@ -277,26 +277,26 @@ func (s *Store) recover(ctx context.Context, rev int64) error {
 }
 
 // write puts the record of key over the one at version expected. When the
-// backend can't tell whether the write happened, the record is read back: the
+// destination can't tell whether the write happened, the record is read back: the
 // gateway is the only writer, so a newer record with the written data is its own.
 func (s *Store) write(key string, data []byte, expected int64) (int64, error) {
 	ctx, cancel := s.opCtx()
 	defer cancel()
-	rev, err := s.be.Put(ctx, key, data, expected)
+	rev, err := s.dst.Put(ctx, key, data, expected)
 	if err == nil {
 		return rev, nil
 	}
-	if errors.Is(err, backend.ErrConflict) {
+	if errors.Is(err, destination.ErrConflict) {
 		// Someone else writes the records
 		s.dirty = true
 		s.log.Error("Unexpected record version, another writer?", slog.String("key", key))
 		return 0, rpctypes.ErrGRPCLeaderChanged
 	}
-	rec, getErr := s.be.Get(ctx, key)
+	rec, getErr := s.dst.Get(ctx, key)
 	if getErr == nil && rec.VersionId != expected && bytes.Equal(rec.Value, data) {
 		return rec.VersionId, nil
 	}
-	if errors.Is(getErr, backend.ErrNotFound) || (getErr == nil && rec.VersionId == expected) {
+	if errors.Is(getErr, destination.ErrNotFound) || (getErr == nil && rec.VersionId == expected) {
 		// The write did not happen
 		return 0, rpctypes.ErrGRPCTimeout
 	}
@@ -313,7 +313,7 @@ func (s *Store) clean() error {
 	}
 	ctx, cancel := s.opCtx()
 	defer cancel()
-	rev, err := s.be.Put(ctx, "m-sync", nil, backend.VersionAny)
+	rev, err := s.dst.Put(ctx, "m-sync", nil, destination.VersionAny)
 	if err != nil {
 		return rpctypes.ErrGRPCTimeout
 	}
@@ -346,7 +346,7 @@ func (s *Store) header() *pb.ResponseHeader {
 	return &pb.ResponseHeader{Revision: s.hist.current()}
 }
 
-func recordEntry(r backend.Record) (*entry, error) {
+func recordEntry(r destination.Record) (*entry, error) {
 	key, err := decodeKvKey(r.Key)
 	if err != nil {
 		return nil, err
@@ -358,8 +358,8 @@ func recordEntry(r backend.Record) (*entry, error) {
 func (s *Store) getEntry(key []byte) (*entry, error) {
 	ctx, cancel := s.opCtx()
 	defer cancel()
-	r, err := s.be.Get(ctx, kvKey(key))
-	if errors.Is(err, backend.ErrNotFound) {
+	r, err := s.dst.Get(ctx, kvKey(key))
+	if errors.Is(err, destination.ErrNotFound) {
 		return nil, nil
 	}
 	if err != nil {
@@ -385,7 +385,7 @@ func (s *Store) liveEntries(key, end []byte) ([]*entry, error) {
 	defer cancel()
 	var entries []*entry
 	var decodeErr error
-	err := s.be.Scan(ctx, minKey, maxKey, func(r backend.Record) bool {
+	err := s.dst.Scan(ctx, minKey, maxKey, func(r destination.Record) bool {
 		e, err := recordEntry(r)
 		if err != nil {
 			decodeErr = err
@@ -591,7 +591,7 @@ func (s *Store) putLocked(r *pb.PutRequest) (*pb.PutResponse, error) {
 
 	kv := &mvccpb.KeyValue{Key: r.Key, Value: value, Lease: lease, Version: 1}
 	var prev *mvccpb.KeyValue
-	expected := backend.VersionNotExists
+	expected := destination.VersionNotExists
 	if cur != nil {
 		expected = cur.versionId
 	}
@@ -924,10 +924,10 @@ func (s *Store) Compact(_ context.Context, r *pb.CompactionRequest) (*pb.Compact
 func (s *Store) removeTombstones(rev int64) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*s.opts.OpTimeout)
 	defer cancel()
-	var tombstones []backend.Record
-	err := s.be.Scan(ctx, kvPrefix, kvEnd, func(r backend.Record) bool {
+	var tombstones []destination.Record
+	err := s.dst.Scan(ctx, kvPrefix, kvEnd, func(r destination.Record) bool {
 		if r.VersionId <= rev && len(r.Value) > 0 && r.Value[0] == flagTombstone {
-			tombstones = append(tombstones, backend.Record{Key: r.Key, VersionId: r.VersionId})
+			tombstones = append(tombstones, destination.Record{Key: r.Key, VersionId: r.VersionId})
 		}
 		return true
 	})
@@ -939,10 +939,10 @@ func (s *Store) removeTombstones(rev int64) {
 		// Under the lock: a write of the key expects the tombstone's version
 		s.mu.Lock()
 		opCtx, opCancel := s.opCtx()
-		err := s.be.Delete(opCtx, t.Key, t.VersionId)
+		err := s.dst.Delete(opCtx, t.Key, t.VersionId)
 		opCancel()
 		s.mu.Unlock()
-		if err != nil && !errors.Is(err, backend.ErrConflict) && !errors.Is(err, backend.ErrNotFound) {
+		if err != nil && !errors.Is(err, destination.ErrConflict) && !errors.Is(err, destination.ErrNotFound) {
 			s.log.Warn("Failed to remove a tombstone", slog.String("key", t.Key), slog.Any("error", err))
 		}
 	}
@@ -996,8 +996,8 @@ func (s *Store) LeaseGrant(_ context.Context, r *pb.LeaseGrantRequest) (*pb.Leas
 	ttl := max(r.TTL, MinLeaseTTL)
 	ctx, cancel := s.opCtx()
 	defer cancel()
-	if _, err := s.be.Put(ctx, leaseKey(id), binary.AppendVarint(nil, ttl), backend.VersionNotExists); err != nil {
-		if errors.Is(err, backend.ErrConflict) {
+	if _, err := s.dst.Put(ctx, leaseKey(id), binary.AppendVarint(nil, ttl), destination.VersionNotExists); err != nil {
+		if errors.Is(err, destination.ErrConflict) {
 			return nil, rpctypes.ErrGRPCLeaseExist
 		}
 		return nil, err
@@ -1040,7 +1040,7 @@ func (s *Store) revokeLocked(ctx context.Context, id int64) error {
 	}
 	opCtx, cancel := s.opCtx()
 	defer cancel()
-	if err := s.be.Delete(opCtx, leaseKey(id), backend.VersionAny); err != nil && !errors.Is(err, backend.ErrNotFound) {
+	if err := s.dst.Delete(opCtx, leaseKey(id), destination.VersionAny); err != nil && !errors.Is(err, destination.ErrNotFound) {
 		return err
 	}
 	s.leases.remove(id)
