@@ -474,6 +474,11 @@ func TestStandby(t *testing.T) {
 	go func() { _ = st2.Run(runCtx) }()
 	time.Sleep(300 * time.Millisecond)
 	assert.False(t, st2.Ready())
+	select {
+	case <-st2.Serving():
+		t.Fatal("the standby serves the records")
+	default:
+	}
 }
 
 func keys(kvs []*mvccpb.KeyValue) []string {
