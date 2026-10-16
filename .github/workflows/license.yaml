@@ -1,0 +1,32 @@
+name: License
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  license-check:
+    name: License Check
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - name: Check the license headers
+        run: |
+          go install github.com/palantir/go-license@latest
+          find . -type f -name '*.go' | xargs "$(go env GOPATH)/bin/go-license" --config=.github/license.yml --verify
