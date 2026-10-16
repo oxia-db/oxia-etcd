@@ -1,0 +1,14 @@
+# A kind cluster whose API server keeps its state in Oxia, through oxia-etcd.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: oxia-etcd-demo
+nodes:
+  - role: control-plane
+kubeadmConfigPatches:
+  - |
+    kind: ClusterConfiguration
+    etcd:
+      local: null
+      external:
+        endpoints:
+          - http://oxia-etcd:2379
