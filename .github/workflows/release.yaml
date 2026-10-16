@@ -70,7 +70,7 @@ jobs:
           mkdir -p dist/conf && cp conf/oxia-etcd.yaml dist/conf/
 
       - name: Upload binary
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: oxia-etcd-${{ matrix.goos }}-${{ matrix.goarch }}
           path: dist/
