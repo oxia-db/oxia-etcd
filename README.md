@@ -1,83 +1,46 @@
-# oxia-etcd
+<p align="center">
+  <img src="logo.svg" width="250" alt="oxia-etcd"/>
+</p>
 
-An etcd v3 API gateway backed by [Oxia](https://github.com/oxia-db/oxia). Any etcd v3 client, including the
-Kubernetes API server, can use it as its etcd.
+<h2 align="center">oxia-etcd</h2>
 
-```
-kube-apiserver / etcdctl / clientv3 ──etcd v3 gRPC──▶ oxia-etcd ──Oxia client──▶ Oxia (shard leader)
-```
+<p align="center">
+An etcd v3 API gateway backed by <a href="https://github.com/oxia-db/oxia">Oxia</a>.
+Point any etcd client, including the Kubernetes API server, at it and keep the data in Oxia.
+</p>
 
-## How it works
+## Supported APIs
 
-- **One shard per etcd cluster.** All the records of a cluster share one Oxia partition key, so they live in one
-  shard, and a key prefix keeps them apart from other clusters in the same namespace.
-- **Revisions are Oxia version ids.** The shard's version id grows with every write, so it orders writes like
-  etcd's revision.
-- **Every write is a compare-and-swap** on the record's version id. A deleted key keeps a tombstone record, so the
-  deletion gets a revision too. Compaction removes the tombstones.
-- **One gateway writes at a time.** The gateway holds an ephemeral owner record. Other gateways of the same cluster
-  stand by and take over when it goes away. Writes are serialized, so revisions, events and responses follow one
-  order.
-- **Watches and past reads come from an in-memory event history** (`--history-size`). The history starts when a
-  gateway takes over. A watch or read before it gets `ErrCompacted`, and clients such as the Kubernetes API
-  server read the keys again, as they do after an etcd compaction.
+| Service | API | Supported |
+|---|---|:---:|
+| KV | `Range` | ✅ |
+| | `RangeStream` | ✅ |
+| | `Put` | ✅ |
+| | `DeleteRange` | ✅ |
+| | `Txn` | ⚠️ [1] |
+| | `Compact` | ✅ |
+| Watch | `Watch` | ✅ |
+| Lease | `LeaseGrant` | ⚠️ [2] |
+| | `LeaseRevoke` | ⚠️ [2] |
+| | `LeaseKeepAlive` | ⚠️ [2] |
+| | `LeaseTimeToLive` | ⚠️ [2] |
+| | `LeaseLeases` | ⚠️ [2] |
 
-## etcd API coverage
+[1] Oxia has no multi-key transaction. A transaction that writes one key, such as the compare-and-swap writes of the
+Kubernetes API server, is atomic. A transaction that writes several keys is isolated from the other requests, but each
+write gets its own revision, and a failure in the middle leaves the first writes applied.
 
-| Service | Supported |
-|---|---|
-| KV | `Range` (prefix, from-key, limit, count, keys-only, sort, min/max revision filters, past revisions), `RangeStream`, `Put` (prev kv, ignore value/lease, lease), `DeleteRange`, `Txn` (any compares and ops, nested), `Compact` |
-| Watch | Ranges, start revision, prev kv, put/delete filters, client watch ids, cancel, compaction, progress notifications and progress requests |
-| Lease | `Grant`, `Revoke`, `KeepAlive`, `TimeToLive` (with keys), `Leases`, expiry |
-| Maintenance | `Status`, `HashKV`, `Hash`, `Alarm`, `Defragment` (no-op) |
-| Cluster | `MemberList` (the gateway) |
-| HTTP | `/version`, `/health`, `/readyz`, `/livez` |
+[2] Oxia has no time-based lease. The gateway keeps the lease expiry in memory, and stores only the lease and its TTL in
+Oxia. When another gateway takes over, the leases start their TTL again.
 
-Not supported: `Snapshot` (use Oxia's backups), membership changes, `MoveLeader`, `Downgrade`, and authentication
-(protect access with the network or TLS).
+## Contributors
 
-Differences from etcd:
+<a href="https://github.com/oxia-db/oxia-etcd/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=oxia-db/oxia-etcd" alt="Contributors"/>
+</a>
 
-- Each write in a transaction, or each key of a `DeleteRange`, gets its own revision. etcd gives them one revision.
-  The revisions grow, but they are not contiguous.
-- A transaction is atomic against other requests, but a backend failure in the middle of it can leave its first
-  writes applied.
+## Star History
 
-## Run it
-
-```sh
-go build -o bin/oxia-etcd ./cmd/oxia-etcd
-./bin/oxia-etcd --oxia localhost:6648 --cluster my-cluster --listen 0.0.0.0:2379
-```
-
-| Flag | Default | |
-|---|---|---|
-| `--oxia` | `localhost:6648` | Oxia service address |
-| `--namespace` | `default` | Oxia namespace |
-| `--cluster` | `default` | etcd cluster name: its records share one Oxia shard |
-| `--listen` | `0.0.0.0:2379` | Address of the etcd API |
-| `--advertise-client-url` | `http://127.0.0.1:2379` | URL reported by `MemberList` |
-| `--history-size` | `100000` | Events kept for watchers and past reads |
-| `--progress-interval` | `5s` | Interval of watch progress notifications |
-| `--session-timeout` | `10s` | Oxia session timeout of the gateway's ownership |
-
-## Demo: Kubernetes on Oxia
-
-`demo/up.sh` starts Oxia and the gateway in Docker, then a [kind](https://kind.sigs.k8s.io) cluster whose API
-server uses the gateway as its external etcd (`demo/kind.yaml`):
-
-```sh
-./demo/up.sh
-kubectl --context kind-oxia-etcd-demo get pods -A   # no etcd pod
-./demo/down.sh
-```
-
-## Tests
-
-The tests drive the gateway with the etcd client. They use an in-memory backend, or Oxia when `OXIA_ADDR` is set:
-
-```sh
-go test -race ./...
-docker run -d -p 6648:6648 oxia/oxia:0.17.1 oxia standalone
-OXIA_ADDR=localhost:6648 go test -race ./...
-```
+<a href="https://www.star-history.com/#oxia-db/oxia-etcd&Date">
+  <img src="https://api.star-history.com/svg?repos=oxia-db/oxia-etcd&type=Date" alt="Star History Chart"/>
+</a>
