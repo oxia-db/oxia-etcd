@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="logo.svg" width="200" alt="oxia-etcd"/>
+  <img src="logo.svg" width="250" alt="oxia-etcd"/>
 </p>
 
 <h2 align="center">oxia-etcd</h2>
@@ -32,3 +32,9 @@ write gets its own revision, and a failure in the middle leaves the first writes
 
 [2] Oxia has no time-based lease. The gateway keeps the lease expiry in memory, and stores only the lease and its TTL in
 Oxia. When another gateway takes over, the leases start their TTL again.
+
+## Contributors
+
+<a href="https://github.com/oxia-db/oxia-etcd/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=oxia-db/oxia-etcd" alt="Contributors"/>
+</a>
