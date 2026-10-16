@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  OXIA_IMAGE: oxia/oxia:0.17.1
+
+jobs:
+  test:
+    name: Build & Test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - name: Check formatting
+        run: test -z "$(gofmt -l .)" || (gofmt -l . && exit 1)
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Build
+        run: go build ./...
+
+      - name: Test with the memory backend
+        run: go test -race -count=1 ./...
+
+      - name: Start Oxia
+        run: |
+          docker run -d --name oxia -p 6648:6648 "$OXIA_IMAGE" oxia standalone
+          timeout 60 bash -c 'until docker logs oxia 2>&1 | grep -q "Started Grpc server"; do sleep 1; done'
+
+      - name: Test with Oxia
+        env:
+          OXIA_ADDR: localhost:6648
+        run: go test -race -count=1 ./...
+
+      - name: Oxia logs
+        if: failure()
+        run: docker logs oxia
