@@ -12,7 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package main
+// Package configwatch reloads a configuration file when it changes.
+package configwatch
 
 import (
 	"bytes"
@@ -25,10 +26,11 @@ import (
 	"github.com/fsnotify/fsnotify"
 )
 
-// watchConfig calls apply with the configuration at path each time the file
-// changes. It watches the directory, so that it follows the file when it is
-// replaced, as Kubernetes does with the files of a ConfigMap.
-func watchConfig(ctx context.Context, log *slog.Logger, path string, apply func(Config)) error {
+// Watch calls apply with the configuration that load reads at path, each time
+// the file changes. It watches the directory, so that it follows the file when
+// it is replaced, as Kubernetes does with the files of a ConfigMap. It ignores
+// a configuration that load rejects.
+func Watch[T any](ctx context.Context, log *slog.Logger, path string, load func(string) (T, error), apply func(T)) error {
 	w, err := fsnotify.NewWatcher()
 	if err != nil {
 		return err
@@ -56,7 +58,7 @@ func watchConfig(ctx context.Context, log *slog.Logger, path string, apply func(
 					continue
 				}
 				last = data
-				cfg, err := loadConfig(path)
+				cfg, err := load(path)
 				if err != nil {
 					log.Warn("Ignoring the invalid configuration", slog.String("path", path), slog.Any("error", err))
 					continue
