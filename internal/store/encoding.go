@@ -22,8 +22,8 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-// The backend keys of the gateway. The etcd keys are hex encoded, which keeps
-// their byte order and keeps them clear of the backend's key separators.
+// The destination keys of the gateway. The etcd keys are hex encoded, which keeps
+// their byte order and keeps them clear of the destination's key separators.
 const (
 	kvPrefix    = "k"
 	kvEnd       = "l" // the first key after all the kv keys
@@ -49,7 +49,7 @@ func leaseKey(id int64) string {
 	return fmt.Sprintf("%s%016x", leasePrefix, id)
 }
 
-// scanBounds returns the backend range of the etcd range [key, end).
+// scanBounds returns the destination range of the etcd range [key, end).
 func scanBounds(key, end []byte) (string, string) {
 	if len(end) == 1 && end[0] == 0 {
 		return kvKey(key), kvEnd
@@ -75,7 +75,7 @@ func InRange(k, key, end []byte) bool {
 type entry struct {
 	kv        *mvccpb.KeyValue
 	tombstone bool
-	// versionId of the record in the backend, which the next write of the key expects
+	// versionId of the record in the destination, which the next write of the key expects
 	versionId int64
 }
 
