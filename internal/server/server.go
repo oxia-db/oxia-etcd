@@ -64,7 +64,7 @@ func (s *Server) Register(g *grpc.Server) {
 	pb.RegisterKVServer(g, &kvServer{s: s})
 	pb.RegisterWatchServer(g, &watchServer{s: s})
 	pb.RegisterLeaseServer(g, &leaseServer{s: s})
-	pb.RegisterMaintenanceServer(g, &maintenanceServer{s: s})
+	pb.RegisterMaintenanceServer(g, &managementServer{s: s})
 	pb.RegisterClusterServer(g, &clusterServer{s: s})
 	pb.RegisterAuthServer(g, &authServer{s: s})
 }

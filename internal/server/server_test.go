@@ -31,35 +31,35 @@ import (
 	clientv3 "go.etcd.io/etcd/client/v3"
 	"google.golang.org/grpc"
 
-	"github.com/oxia-db/oxia-etcd/internal/backend"
+	"github.com/oxia-db/oxia-etcd/internal/destination"
 	"github.com/oxia-db/oxia-etcd/internal/store"
 )
 
-// newBackend returns the backend of the tests: Oxia at $OXIA_ADDR, or else
+// newDestination returns the destination of the tests: Oxia at $OXIA_ADDR, or else
 // memory. Each test gets its own records, under a cluster name of its own.
-func newBackend(t *testing.T, cluster string) backend.Backend {
+func newDestination(t *testing.T, cluster string) destination.Destination {
 	t.Helper()
 	addr := os.Getenv("OXIA_ADDR")
 	if addr == "" {
-		return backend.NewMemory()
+		return destination.NewMemory()
 	}
-	be, err := backend.NewOxia(addr, "default", fmt.Sprintf("%s-%d", cluster, testRun), 5*time.Second)
+	dst, err := destination.NewOxia(addr, "default", fmt.Sprintf("%s-%d", cluster, testRun), 5*time.Second)
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = be.Close() })
-	return be
+	t.Cleanup(func() { _ = dst.Close() })
+	return dst
 }
 
 // testRun keeps the records of the test runs apart in a shared Oxia
 var testRun = time.Now().UnixNano()
 
-// newGateway serves a gateway over be, and returns a client of it.
-func newGateway(t *testing.T, be backend.Backend) (*clientv3.Client, *store.Store) {
+// newGateway serves a gateway over dst, and returns a client of it.
+func newGateway(t *testing.T, dst destination.Destination) (*clientv3.Client, *store.Store) {
 	t.Helper()
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	if os.Getenv("TEST_LOG") != "" {
 		log = slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	}
-	st := store.New(be, store.Options{
+	st := store.New(dst, store.Options{
 		HistorySize:        1000,
 		OwnerCheckInterval: 100 * time.Millisecond,
 		LeaseCheckInterval: 100 * time.Millisecond,
@@ -97,7 +97,7 @@ func testContext(t *testing.T) context.Context {
 }
 
 func TestKV(t *testing.T) {
-	c, _ := newGateway(t, newBackend(t, t.Name()))
+	c, _ := newGateway(t, newDestination(t, t.Name()))
 	ctx := testContext(t)
 
 	put, err := c.Put(ctx, "/a/1", "v1")
@@ -180,7 +180,7 @@ func TestKV(t *testing.T) {
 }
 
 func TestPastRevisions(t *testing.T) {
-	c, _ := newGateway(t, newBackend(t, t.Name()))
+	c, _ := newGateway(t, newDestination(t, t.Name()))
 	ctx := testContext(t)
 
 	r1, err := c.Put(ctx, "/k", "1")
@@ -218,7 +218,7 @@ func TestPastRevisions(t *testing.T) {
 
 // TestKubernetesTxns runs the transactions of the Kubernetes API server.
 func TestKubernetesTxns(t *testing.T) {
-	c, _ := newGateway(t, newBackend(t, t.Name()))
+	c, _ := newGateway(t, newDestination(t, t.Name()))
 	ctx := testContext(t)
 	key := "/registry/pods/default/p"
 
@@ -276,7 +276,7 @@ func TestKubernetesTxns(t *testing.T) {
 }
 
 func TestWatch(t *testing.T) {
-	c, _ := newGateway(t, newBackend(t, t.Name()))
+	c, _ := newGateway(t, newDestination(t, t.Name()))
 	ctx := testContext(t)
 
 	first, err := c.Put(ctx, "/w/a", "1")
@@ -333,7 +333,7 @@ func TestWatch(t *testing.T) {
 }
 
 func TestWatchCompacted(t *testing.T) {
-	c, _ := newGateway(t, newBackend(t, t.Name()))
+	c, _ := newGateway(t, newDestination(t, t.Name()))
 	ctx := testContext(t)
 
 	r1, err := c.Put(ctx, "/k", "1")
@@ -349,7 +349,7 @@ func TestWatchCompacted(t *testing.T) {
 }
 
 func TestWatchProgress(t *testing.T) {
-	c, _ := newGateway(t, newBackend(t, t.Name()))
+	c, _ := newGateway(t, newDestination(t, t.Name()))
 	ctx := testContext(t)
 
 	put, err := c.Put(ctx, "/p", "1")
@@ -371,7 +371,7 @@ func TestWatchProgress(t *testing.T) {
 }
 
 func TestLeases(t *testing.T) {
-	c, _ := newGateway(t, newBackend(t, t.Name()))
+	c, _ := newGateway(t, newDestination(t, t.Name()))
 	ctx := testContext(t)
 
 	grant, err := c.Grant(ctx, 60)
@@ -430,7 +430,7 @@ func TestLeases(t *testing.T) {
 }
 
 func TestMaintenance(t *testing.T) {
-	c, _ := newGateway(t, newBackend(t, t.Name()))
+	c, _ := newGateway(t, newDestination(t, t.Name()))
 	ctx := testContext(t)
 
 	_, err := c.Put(ctx, "/k", "v")
@@ -456,19 +456,19 @@ func TestMaintenance(t *testing.T) {
 // TestStandby checks that a second gateway on the same records stays on
 // standby, and takes over with the records once the first one is gone.
 func TestStandby(t *testing.T) {
-	be := newBackend(t, t.Name())
-	c1, _ := newGateway(t, be)
+	dst := newDestination(t, t.Name())
+	c1, _ := newGateway(t, dst)
 	ctx := testContext(t)
 	_, err := c1.Put(ctx, "/k", "v")
 	require.NoError(t, err)
 
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	// Its own backend client: an Oxia session of its own
-	be2 := be
+	// Its own destination client: an Oxia session of its own
+	dst2 := dst
 	if os.Getenv("OXIA_ADDR") != "" {
-		be2 = newBackend(t, t.Name())
+		dst2 = newDestination(t, t.Name())
 	}
-	st2 := store.New(be2, store.Options{OwnerCheckInterval: 100 * time.Millisecond}, log)
+	st2 := store.New(dst2, store.Options{OwnerCheckInterval: 100 * time.Millisecond}, log)
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	go func() { _ = st2.Run(runCtx) }()
