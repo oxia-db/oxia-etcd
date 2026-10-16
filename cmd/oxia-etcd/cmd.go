@@ -122,10 +122,6 @@ func start(level *slog.LevelVar, configPath string, options *option.Options) (*g
 		grpc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{MinTime: 5 * time.Second, PermitWithoutStream: true}),
 	)
 	srv.Register(g)
-	grpcL, err := net.Listen("tcp", options.Server.BindAddress)
-	if err != nil {
-		return nil, err
-	}
 	httpL, err := net.Listen("tcp", options.Observability.Metric.BindAddress)
 	if err != nil {
 		return nil, err
@@ -160,17 +156,35 @@ func start(level *slog.LevelVar, configPath string, options *option.Options) (*g
 		meterProvider: meterProvider,
 		closing:       make(chan struct{}),
 	}
-	go func() { gw.exitOnFailure("etcd API", g.Serve(grpcL)) }()
+	go gw.serveWhenOwner(st, options.Server.BindAddress)
 	go func() { gw.exitOnFailure("HTTP", h.Serve(httpL)) }()
 	go func() {
 		defer close(gw.storeDone)
 		// Losing the ownership of the records is fatal: another gateway serves them
 		gw.exitOnFailure("store", st.Run(ctx))
 	}()
-	log.Info("Serving the etcd API", slog.String("listen", options.Server.BindAddress),
+	log.Info("Started the gateway", slog.String("listen", options.Server.BindAddress),
 		slog.String("http", options.Observability.Metric.BindAddress), slog.String("oxia", options.Oxia.ServiceAddress),
 		slog.String("namespace", options.Oxia.Namespace), slog.String("cluster", options.Oxia.Cluster))
 	return gw, nil
+}
+
+// serveWhenOwner opens the etcd port once the gateway owns the records. A
+// standby keeps it closed: unlike an etcd follower, it can't forward the
+// requests, and etcd clients send them only to the endpoints they can reach.
+func (gw *gateway) serveWhenOwner(st *store.Store, bindAddress string) {
+	select {
+	case <-st.Serving():
+	case <-gw.closing:
+		return
+	}
+	l, err := net.Listen("tcp", bindAddress)
+	if err != nil {
+		gw.exitOnFailure("etcd API", err)
+		return
+	}
+	slog.Info("Serving the etcd API", slog.String("listen", bindAddress))
+	gw.exitOnFailure("etcd API", gw.grpc.Serve(l))
 }
 
 // exitOnFailure exits the process when a part of the gateway stops while it

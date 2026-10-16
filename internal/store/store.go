@@ -108,22 +108,29 @@ type Store struct {
 	hist   *history
 	leases *lessor
 	ready  atomic.Bool
-	size   atomic.Int64
+	// serving is closed once the gateway owns the records and serves them
+	serving chan struct{}
+	size    atomic.Int64
 }
 
 func New(dst destination.Destination, opts Options, log *slog.Logger) *Store {
 	opts = opts.withDefaults()
 	return &Store{
-		dst:    dst,
-		opts:   opts,
-		log:    log,
-		hist:   newHistory(opts.HistorySize),
-		leases: newLessor(),
+		dst:     dst,
+		opts:    opts,
+		log:     log,
+		hist:    newHistory(opts.HistorySize),
+		leases:  newLessor(),
+		serving: make(chan struct{}),
 	}
 }
 
 // Ready reports whether the gateway owns the records and serves them.
 func (s *Store) Ready() bool { return s.ready.Load() }
+
+// Serving returns a channel closed once the gateway owns the records and
+// serves them. A store serves at most once: losing the ownership is fatal.
+func (s *Store) Serving() <-chan struct{} { return s.serving }
 
 // Rev returns the current revision.
 func (s *Store) Rev() int64 { return s.hist.current() }
@@ -157,6 +164,7 @@ func (s *Store) Run(ctx context.Context) error {
 	}
 	s.ready.Store(true)
 	defer s.ready.Store(false)
+	close(s.serving)
 	s.log.Info("Serving the records", slog.Int64("revision", rev))
 
 	owner := time.NewTicker(s.opts.OwnerCheckInterval)
