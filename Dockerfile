@@ -3,9 +3,9 @@ WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /oxia-etcd ./cmd/oxia-etcd
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /oxia-etcd ./cmd
 
 FROM gcr.io/distroless/static-debian12:nonroot
 COPY --from=build /oxia-etcd /oxia-etcd
-EXPOSE 2379
+EXPOSE 2379 8080
 ENTRYPOINT ["/oxia-etcd"]

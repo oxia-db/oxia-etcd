@@ -1,0 +1,34 @@
+# The gateway watches this file: the log level and the progress interval
+# change as soon as it does, and the other settings on the next restart.
+server:
+  # Address of the etcd API
+  bindAddress: 0.0.0.0:2379
+  # Client URL the gateway reports
+  advertiseClientURL: http://127.0.0.1:2379
+  # Member name the gateway reports
+  name: oxia-etcd
+  # Number of recent events kept for watchers and past reads
+  historySize: 100000
+  # Interval of the watch progress notifications
+  progressInterval: 5s
+
+oxia:
+  serviceAddress: localhost:6648
+  namespace: default
+  # Name of the etcd cluster: its records share one Oxia shard
+  cluster: default
+  # Oxia session timeout of the gateway's ownership
+  sessionTimeout: 10s
+
+observability:
+  metric:
+    # Serves the Prometheus metrics on /metrics
+    enabled: true
+    # Address of /metrics, and of /health, /readyz, /livez and /version
+    bindAddress: 0.0.0.0:8080
+  log:
+    level: info
+  pprof:
+    # Serves the Go profiles on /debug/pprof
+    enabled: true
+    bindAddress: 127.0.0.1:6060

@@ -175,7 +175,7 @@ func (ws *watchStream) create(r *pb.WatchCreateRequest) {
 func (ws *watchStream) run(w *watcher, rev int64) {
 	var progress <-chan time.Time
 	if w.progressNotify {
-		t := time.NewTicker(ws.s.cfg.ProgressInterval)
+		t := time.NewTicker(time.Duration(ws.s.progressInterval.Load()))
 		defer t.Stop()
 		progress = t.C
 	}
