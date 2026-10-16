@@ -38,9 +38,3 @@ Oxia. When another gateway takes over, the leases start their TTL again.
 <a href="https://github.com/oxia-db/oxia-etcd/graphs/contributors">
   <img src="https://contrib.rocks/image?repo=oxia-db/oxia-etcd" alt="Contributors"/>
 </a>
-
-## Star History
-
-<a href="https://www.star-history.com/#oxia-db/oxia-etcd&Date">
-  <img src="https://api.star-history.com/svg?repos=oxia-db/oxia-etcd&type=Date" alt="Star History Chart"/>
-</a>

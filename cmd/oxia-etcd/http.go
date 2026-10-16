@@ -12,17 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package cmd
+package oxiaetcd
 
 import (
 	"context"
 	"encoding/json"
-	"log/slog"
-	"net"
 	"net/http"
-	"net/http/pprof"
-	"runtime"
-	"time"
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.etcd.io/etcd/api/v3/version"
@@ -87,24 +82,4 @@ func httpHandler(st *store.Store, metrics bool) http.Handler {
 	mux.HandleFunc("/readyz", health)
 	mux.HandleFunc("/livez", func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("ok")) })
 	return mux
-}
-
-// servePprof serves the Go profiles, with the mutex and block profiles sampled.
-func servePprof(log *slog.Logger, bindAddress string) (*http.Server, error) {
-	l, err := net.Listen("tcp", bindAddress)
-	if err != nil {
-		return nil, err
-	}
-	runtime.SetMutexProfileFraction(100)
-	runtime.SetBlockProfileRate(100_000)
-	mux := http.NewServeMux()
-	mux.HandleFunc("/debug/pprof/", pprof.Index)
-	mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
-	mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
-	mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
-	mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
-	s := &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second}
-	go func() { _ = s.Serve(l) }()
-	log.Info("Serving the Go profiles", slog.String("url", "http://"+bindAddress+"/debug/pprof"))
-	return s, nil
 }

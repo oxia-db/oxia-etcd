@@ -16,14 +16,9 @@
 package main
 
 import (
-	"os"
-
-	"github.com/oxia-db/oxia-etcd/oxia-etcd/cmd"
+	oxiaetcd "github.com/oxia-db/oxia-etcd/cmd/oxia-etcd"
 )
 
 func main() {
-	// Execute logs the error, with the logger of the configuration
-	if err := cmd.Execute(); err != nil {
-		os.Exit(1)
-	}
+	oxiaetcd.Execute()
 }
