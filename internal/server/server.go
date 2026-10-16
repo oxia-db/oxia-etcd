@@ -2,6 +2,7 @@
 package server
 
 import (
+	"sync/atomic"
 	"time"
 
 	pb "go.etcd.io/etcd/api/v3/etcdserverpb"
@@ -23,13 +24,25 @@ type Config struct {
 type Server struct {
 	cfg Config
 	st  *store.Store
+	// progressInterval is cfg.ProgressInterval, which can change while serving
+	progressInterval atomic.Int64
 }
 
 func New(cfg Config, st *store.Store) *Server {
 	if cfg.ProgressInterval <= 0 {
 		cfg.ProgressInterval = 5 * time.Second
 	}
-	return &Server{cfg: cfg, st: st}
+	s := &Server{cfg: cfg, st: st}
+	s.progressInterval.Store(int64(cfg.ProgressInterval))
+	return s
+}
+
+// SetProgressInterval changes the interval of the watch progress
+// notifications. The watchers created from now on use it.
+func (s *Server) SetProgressInterval(d time.Duration) {
+	if d > 0 {
+		s.progressInterval.Store(int64(d))
+	}
 }
 
 // Register registers the etcd services on g.

@@ -20,14 +20,16 @@ type Oxia struct {
 	prefix       string
 }
 
-func NewOxia(serviceAddress, namespace, partitionKey string, sessionTimeout time.Duration) (*Oxia, error) {
-	client, err := oxia.NewSyncClient(serviceAddress,
+func NewOxia(serviceAddress, namespace, partitionKey string, sessionTimeout time.Duration,
+	extra ...oxia.ClientOption) (*Oxia, error) {
+	opts := append([]oxia.ClientOption{
 		oxia.WithNamespace(namespace),
 		oxia.WithSessionTimeout(sessionTimeout),
 		oxia.WithIdentity("oxia-etcd"),
 		// The gateway issues one write at a time, so there is nothing to batch
 		oxia.WithBatchLinger(0),
-	)
+	}, extra...)
+	client, err := oxia.NewSyncClient(serviceAddress, opts...)
 	if err != nil {
 		return nil, err
 	}
