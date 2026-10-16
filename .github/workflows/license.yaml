@@ -29,4 +29,4 @@ jobs:
       - name: Check the license headers
         run: |
           go install github.com/palantir/go-license@latest
-          find . -type f -name '*.go' | xargs "$(go env GOPATH)/bin/go-license" --config=.github/license.yml --verify
+          find . -type f -name '*.go' -print0 | xargs -0 "$(go env GOPATH)/bin/go-license" --config=.github/license.yml --verify

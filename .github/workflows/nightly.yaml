@@ -1,0 +1,65 @@
+name: Nightly
+
+on:
+  schedule:
+    - cron: '0 18 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish nightly image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Check out main
+        uses: actions/checkout@v6
+        with:
+          ref: main
+          fetch-depth: 1
+
+      - name: Resolve source revision
+        id: source
+        run: echo "revision=$(git rev-parse HEAD)" >> "${GITHUB_OUTPUT}"
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKER_USER }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            oxia/oxia-etcd:nightly
+          labels: |
+            org.opencontainers.image.source=https://github.com/oxia-db/oxia-etcd
+            org.opencontainers.image.revision=${{ steps.source.outputs.revision }}
+            org.opencontainers.image.version=nightly
+          cache-from: type=gha,scope=nightly
+          cache-to: type=gha,mode=max,scope=nightly
+
+      - name: Summarize image
+        env:
+          SOURCE_REVISION: ${{ steps.source.outputs.revision }}
+        run: |
+          {
+            echo "### Nightly image"
+            echo
+            echo "- Image: \`oxia/oxia-etcd:nightly\`"
+            echo "- Source: \`main\` (\`${SOURCE_REVISION}\`)"
+          } >> "${GITHUB_STEP_SUMMARY}"
