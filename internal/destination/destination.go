@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package backend is the key-value storage the gateway keeps its records in.
-package backend
+// Package destination is the key-value storage the gateway keeps its records in.
+package destination
 
 import (
 	"context"
@@ -22,9 +22,9 @@ import (
 
 var (
 	// ErrNotFound is returned when the key has no record.
-	ErrNotFound = errors.New("backend: key not found")
+	ErrNotFound = errors.New("destination: key not found")
 	// ErrConflict is returned when the record's version is not the expected one.
-	ErrConflict = errors.New("backend: unexpected version")
+	ErrConflict = errors.New("destination: unexpected version")
 )
 
 const (
@@ -35,16 +35,16 @@ const (
 )
 
 // Record is a stored key with its value and version. VersionId comes from a
-// counter that grows with every write to the backend, so it orders writes.
+// counter that grows with every write to the destination, so it orders writes.
 type Record struct {
 	Key       string
 	Value     []byte
 	VersionId int64
 }
 
-// Backend stores the records of one gateway. All the records share one
+// Destination stores the records of one gateway. All the records share one
 // ordering domain: the version ids of two writes compare like their commit order.
-type Backend interface {
+type Destination interface {
 	Get(ctx context.Context, key string) (Record, error)
 	// Put writes the record if its current version is expected, and returns the new version.
 	Put(ctx context.Context, key string, value []byte, expected int64) (int64, error)

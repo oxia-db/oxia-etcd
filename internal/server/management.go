@@ -25,12 +25,13 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-type maintenanceServer struct {
+// managementServer serves etcd's Maintenance service, which clients call by that name.
+type managementServer struct {
 	pb.UnimplementedMaintenanceServer
 	s *Server
 }
 
-func (m *maintenanceServer) Status(context.Context, *pb.StatusRequest) (*pb.StatusResponse, error) {
+func (m *managementServer) Status(context.Context, *pb.StatusRequest) (*pb.StatusResponse, error) {
 	if !m.s.st.Ready() {
 		return nil, rpctypes.ErrGRPCNoLeader
 	}
@@ -48,17 +49,17 @@ func (m *maintenanceServer) Status(context.Context, *pb.StatusRequest) (*pb.Stat
 	}, nil
 }
 
-// Alarm reports no alarm: the space is the backend's to manage.
-func (m *maintenanceServer) Alarm(context.Context, *pb.AlarmRequest) (*pb.AlarmResponse, error) {
+// Alarm reports no alarm: the space is the destination's to manage.
+func (m *managementServer) Alarm(context.Context, *pb.AlarmRequest) (*pb.AlarmResponse, error) {
 	return &pb.AlarmResponse{Header: m.s.header(nil)}, nil
 }
 
-// Defragment has nothing to do: the backend manages its storage.
-func (m *maintenanceServer) Defragment(context.Context, *pb.DefragmentRequest) (*pb.DefragmentResponse, error) {
+// Defragment has nothing to do: the destination manages its storage.
+func (m *managementServer) Defragment(context.Context, *pb.DefragmentRequest) (*pb.DefragmentResponse, error) {
 	return &pb.DefragmentResponse{Header: m.s.header(nil)}, nil
 }
 
-func (m *maintenanceServer) Hash(ctx context.Context, _ *pb.HashRequest) (*pb.HashResponse, error) {
+func (m *managementServer) Hash(ctx context.Context, _ *pb.HashRequest) (*pb.HashResponse, error) {
 	hash, _, err := m.s.st.HashKV(ctx, 0)
 	if err != nil {
 		return nil, err
@@ -66,7 +67,7 @@ func (m *maintenanceServer) Hash(ctx context.Context, _ *pb.HashRequest) (*pb.Ha
 	return &pb.HashResponse{Header: m.s.header(nil), Hash: hash}, nil
 }
 
-func (m *maintenanceServer) HashKV(ctx context.Context, r *pb.HashKVRequest) (*pb.HashKVResponse, error) {
+func (m *managementServer) HashKV(ctx context.Context, r *pb.HashKVRequest) (*pb.HashKVResponse, error) {
 	hash, rev, err := m.s.st.HashKV(ctx, r.Revision)
 	if err != nil {
 		return nil, err
@@ -74,15 +75,15 @@ func (m *maintenanceServer) HashKV(ctx context.Context, r *pb.HashKVRequest) (*p
 	return &pb.HashKVResponse{Header: m.s.header(nil), Hash: hash, HashRevision: rev, CompactRevision: m.s.st.CompactRev()}, nil
 }
 
-func (m *maintenanceServer) Snapshot(*pb.SnapshotRequest, grpc.ServerStreamingServer[pb.SnapshotResponse]) error {
+func (m *managementServer) Snapshot(*pb.SnapshotRequest, grpc.ServerStreamingServer[pb.SnapshotResponse]) error {
 	return status.Error(codes.Unimplemented, "oxia-etcd: snapshots are taken with the Oxia backups")
 }
 
-func (m *maintenanceServer) MoveLeader(context.Context, *pb.MoveLeaderRequest) (*pb.MoveLeaderResponse, error) {
+func (m *managementServer) MoveLeader(context.Context, *pb.MoveLeaderRequest) (*pb.MoveLeaderResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "oxia-etcd: leadership is managed by Oxia")
 }
 
-func (m *maintenanceServer) Downgrade(context.Context, *pb.DowngradeRequest) (*pb.DowngradeResponse, error) {
+func (m *managementServer) Downgrade(context.Context, *pb.DowngradeRequest) (*pb.DowngradeResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "oxia-etcd: downgrade is not supported")
 }
 

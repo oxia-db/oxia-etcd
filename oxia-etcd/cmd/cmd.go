@@ -37,7 +37,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/keepalive"
 
-	"github.com/oxia-db/oxia-etcd/internal/backend"
+	"github.com/oxia-db/oxia-etcd/internal/destination"
 	"github.com/oxia-db/oxia-etcd/internal/server"
 	"github.com/oxia-db/oxia-etcd/internal/store"
 	"github.com/oxia-db/oxia-etcd/oxia-etcd/configwatch"
@@ -85,14 +85,14 @@ func run(log *slog.Logger, level *slog.LevelVar, configPath string, options *opt
 	meterProvider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(exporter))
 	defer func() { _ = meterProvider.Shutdown(context.Background()) }()
 
-	be, err := backend.NewOxia(options.Oxia.ServiceAddress, options.Oxia.Namespace, options.Oxia.Cluster, options.Oxia.SessionTimeout,
+	dst, err := destination.NewOxia(options.Oxia.ServiceAddress, options.Oxia.Namespace, options.Oxia.Cluster, options.Oxia.SessionTimeout,
 		oxia.WithMeterProvider(meterProvider))
 	if err != nil {
 		return err
 	}
-	defer be.Close()
+	defer dst.Close()
 
-	st := store.New(be, store.Options{HistorySize: options.Server.HistorySize}, log)
+	st := store.New(dst, store.Options{HistorySize: options.Server.HistorySize}, log)
 	if err := registerMetrics(meterProvider.Meter("oxia-etcd"), st); err != nil {
 		return err
 	}
