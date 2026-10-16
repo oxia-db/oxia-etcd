@@ -4,6 +4,7 @@ go 1.27.1
 
 require (
 	github.com/fsnotify/fsnotify v1.10.1
+	github.com/oxia-db/oxia/common v0.17.1
 	github.com/oxia-db/oxia/oxia v0.17.1
 	github.com/prometheus/client_golang v1.25.0
 	github.com/stretchr/testify v1.12.1
@@ -15,7 +16,6 @@ require (
 	go.opentelemetry.io/otel/sdk/metric v1.47.0
 	google.golang.org/grpc v1.83.2
 	google.golang.org/protobuf v1.36.12
-	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (
@@ -36,7 +36,6 @@ require (
 	github.com/klauspost/cpuid/v2 v2.2.10 // indirect
 	github.com/mitchellh/mapstructure v1.5.0 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
-	github.com/oxia-db/oxia/common v0.17.1 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/planetscale/vtprotobuf v0.6.1-0.20240319094008-0393e58bdf10 // indirect
 	github.com/prometheus/client_model v0.6.3 // indirect
@@ -58,4 +57,5 @@ require (
 	golang.org/x/text v0.42.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20260526163538-3dc84a4a5aaa // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260928230214-8a89bd6388cc // indirect
+	gopkg.in/yaml.v3 v3.0.1 // indirect
 )

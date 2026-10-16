@@ -41,39 +41,39 @@ import (
 	"github.com/oxia-db/oxia-etcd/internal/server"
 	"github.com/oxia-db/oxia-etcd/internal/store"
 	"github.com/oxia-db/oxia-etcd/oxia-etcd/configwatch"
+	"github.com/oxia-db/oxia-etcd/oxia-etcd/option"
 )
 
 // Execute parses the flags, and serves until a signal or a failure. It logs
 // the error it returns.
 func Execute() error {
-	configPath := flag.String("config", "", "Path of the YAML configuration file")
+	// The flag of the configuration file of an Oxia server
+	configPath := flag.String("sconfig", "", "Path of the YAML configuration file")
 	flag.Parse()
 
-	cfg, err := loadConfig(*configPath)
+	options, err := option.Load(*configPath)
 	if err != nil {
 		slog.Error("Failed to load the configuration", slog.Any("error", err))
 		return err
 	}
 	level := &slog.LevelVar{}
-	setLevel(level, cfg.Observability.Log.Level)
+	setLevel(level, options.Observability.Log)
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level}))
 
-	if err := run(log, level, *configPath, cfg); err != nil {
+	if err := run(log, level, *configPath, options); err != nil {
 		log.Error("Exiting", slog.Any("error", err))
 		return err
 	}
 	return nil
 }
 
-func setLevel(level *slog.LevelVar, name string) {
-	var l slog.Level
-	if err := l.UnmarshalText([]byte(name)); err != nil {
-		l = slog.LevelInfo
-	}
+// setLevel sets the level of validated options.
+func setLevel(level *slog.LevelVar, options option.LogOptions) {
+	l, _ := options.SlogLevel()
 	level.Set(l)
 }
 
-func run(log *slog.Logger, level *slog.LevelVar, configPath string, cfg Config) error {
+func run(log *slog.Logger, level *slog.LevelVar, configPath string, options *option.Options) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
@@ -85,23 +85,23 @@ func run(log *slog.Logger, level *slog.LevelVar, configPath string, cfg Config) 
 	meterProvider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(exporter))
 	defer func() { _ = meterProvider.Shutdown(context.Background()) }()
 
-	be, err := backend.NewOxia(cfg.Oxia.ServiceAddress, cfg.Oxia.Namespace, cfg.Oxia.Cluster, cfg.Oxia.SessionTimeout,
+	be, err := backend.NewOxia(options.Oxia.ServiceAddress, options.Oxia.Namespace, options.Oxia.Cluster, options.Oxia.SessionTimeout,
 		oxia.WithMeterProvider(meterProvider))
 	if err != nil {
 		return err
 	}
 	defer be.Close()
 
-	st := store.New(be, store.Options{HistorySize: cfg.Server.HistorySize}, log)
+	st := store.New(be, store.Options{HistorySize: options.Server.HistorySize}, log)
 	if err := registerMetrics(meterProvider.Meter("oxia-etcd"), st); err != nil {
 		return err
 	}
 	srv := server.New(server.Config{
-		ClusterID:        hash(cfg.Oxia.Cluster),
-		MemberID:         hash(cfg.Oxia.Cluster + "/" + cfg.Server.Name),
-		Name:             cfg.Server.Name,
-		ClientURLs:       []string{cfg.Server.AdvertiseClientURL},
-		ProgressInterval: cfg.Server.ProgressInterval,
+		ClusterID:        hash(options.Oxia.Cluster),
+		MemberID:         hash(options.Oxia.Cluster + "/" + options.Server.Name),
+		Name:             options.Server.Name,
+		ClientURLs:       []string{options.Server.AdvertiseClientURL},
+		ProgressInterval: options.Server.ProgressInterval,
 	}, st)
 
 	g := grpc.NewServer(
@@ -112,25 +112,25 @@ func run(log *slog.Logger, level *slog.LevelVar, configPath string, cfg Config) 
 		grpc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{MinTime: 5 * time.Second, PermitWithoutStream: true}),
 	)
 	srv.Register(g)
-	grpcL, err := net.Listen("tcp", cfg.Server.BindAddress)
+	grpcL, err := net.Listen("tcp", options.Server.BindAddress)
 	if err != nil {
 		return err
 	}
-	httpL, err := net.Listen("tcp", cfg.Observability.Metric.BindAddress)
+	httpL, err := net.Listen("tcp", options.Observability.Metric.BindAddress)
 	if err != nil {
 		return err
 	}
-	h := &http.Server{Handler: httpHandler(st, cfg.Observability.Metric.Enabled), ReadHeaderTimeout: 10 * time.Second}
-	if cfg.Observability.Pprof.Enabled {
-		pprofServer, err := servePprof(log, cfg.Observability.Pprof.BindAddress)
+	h := &http.Server{Handler: httpHandler(st, options.Observability.Metric.IsEnabled()), ReadHeaderTimeout: 10 * time.Second}
+	if options.Observability.Pprof.IsEnabled() {
+		pprofServer, err := servePprof(log, options.Observability.Pprof.BindAddress)
 		if err != nil {
 			return err
 		}
 		defer pprofServer.Close()
 	}
 	if configPath != "" {
-		if err := configwatch.Watch(ctx, log, configPath, loadConfig, func(next Config) {
-			setLevel(level, next.Observability.Log.Level)
+		if err := configwatch.Watch(ctx, log, configPath, option.Load, func(next *option.Options) {
+			setLevel(level, next.Observability.Log)
 			srv.SetProgressInterval(next.Server.ProgressInterval)
 		}); err != nil {
 			return err
@@ -141,9 +141,9 @@ func run(log *slog.Logger, level *slog.LevelVar, configPath string, cfg Config) 
 	go func() { errC <- g.Serve(grpcL) }()
 	go func() { errC <- h.Serve(httpL) }()
 	go func() { errC <- st.Run(ctx) }()
-	log.Info("Serving the etcd API", slog.String("listen", cfg.Server.BindAddress), slog.String("http", cfg.Observability.Metric.BindAddress),
-		slog.String("oxia", cfg.Oxia.ServiceAddress), slog.String("namespace", cfg.Oxia.Namespace),
-		slog.String("cluster", cfg.Oxia.Cluster))
+	log.Info("Serving the etcd API", slog.String("listen", options.Server.BindAddress), slog.String("http", options.Observability.Metric.BindAddress),
+		slog.String("oxia", options.Oxia.ServiceAddress), slog.String("namespace", options.Oxia.Namespace),
+		slog.String("cluster", options.Oxia.Cluster))
 
 	select {
 	case <-ctx.Done():
